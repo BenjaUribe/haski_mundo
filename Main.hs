@@ -3,6 +3,7 @@ module Main where
 import Game
 import Graphics.Gloss
 import Graphics.Gloss.Interface.IO.Game
+import Graphics.Gloss.Data.Picture
 import Control.Monad.State
 import qualified Data.Set as Set
 import System.Exit (exitSuccess)
@@ -40,16 +41,18 @@ data GameWorld = GameWorld
     , selectedMenuOption :: Int          -- Opción seleccionada en menús
     , selectedAction :: Int              -- Acción seleccionada en combate (0=Atacar, 1=Bloquear, 2=Escapar)
     , shouldExit :: Bool                 -- Indica si se debe salir del juego
+    , backgroundImage :: Picture         -- Imagen de fondo del menú
     } deriving (Show)
 
 -- Estado inicial del mundo
-initialWorld :: CharacterClass -> GameWorld
-initialWorld chosenClass = GameWorld
+initialWorld :: CharacterClass -> Picture -> GameWorld
+initialWorld chosenClass bgImage = GameWorld
     { currentScene = MainMenu
     , selectedMenuOption = 0
     , worldPlayer = createPlayer chosenClass
     , selectedAction = 0
     , shouldExit = False
+    , backgroundImage = bgImage
     }
 
 -- =============================================================================
@@ -67,9 +70,14 @@ render world = case currentScene world of
 -- Renderizar menú principal
 renderMainMenu :: GameWorld -> Picture
 renderMainMenu world = pictures
-    [ translate (-600) 270 $ scale 0.5 0.5 $ color white $ text "HASKI-MUNDO"
-    , translate (-100) 0 $ renderMenuOptions ["Jugar", "Creditos", "Salir"] (selectedMenuOption world)
-    , translate (-120) (-340) $ scale 0.2 0.2 $ color (greyN 0.7) $ text "Usa flechas y Enter"
+    [ -- Imagen de fondo
+      backgroundImage world
+    , -- Título del juego
+      translate (-600) 270 $ scale 0.5 0.5 $ color white $ text "HASKI-MUNDO"
+    , -- Opciones del menú
+      translate (-100) 0 $ renderMenuOptions ["Jugar", "Creditos", "Salir"] (selectedMenuOption world)
+    , -- Instrucciones
+      translate (-120) (-340) $ scale 0.2 0.2 $ color (greyN 0.7) $ text "Usa flechas y Enter"
     ]
 
 -- Renderizar selección de clase
@@ -383,6 +391,9 @@ updateIO dt world = return $ update dt world
 
 main :: IO ()
 main = do
+    -- Cargar la imagen de fondo usando la función del módulo Game
+    bgImage <- loadGameImages
+    
     -- Iniciar directamente en el menú gráfico
     -- Por defecto creamos un Warrior (se puede cambiar desde el menú)
-    playIO window backgroundColor fps (initialWorld Warrior) renderIO handleInputIO updateIO
+    playIO window backgroundColor fps (initialWorld Warrior bgImage) renderIO handleInputIO updateIO

@@ -11,6 +11,10 @@ module Game
     , createPlayer
     , createEnemy
     
+    -- Funciones de carga de recursos
+    , loadBackgroundImage
+    , loadGameImages
+    
     -- Funciones del juego (agregar según las vayas creando)
     -- , moverJugador
     -- , atacar
@@ -18,6 +22,11 @@ module Game
     ) where
 
 import Control.Monad.State
+import Graphics.Gloss.Data.Picture
+import Graphics.Gloss.Data.Bitmap
+import Graphics.Gloss.Data.Color
+import Control.Exception (catch)
+import System.IO.Error (IOError)
 
 
 -- =============================================================================
@@ -118,6 +127,32 @@ createEnemy Skeleton = Enemy
 --   state <- get
 --   put state { ... actualizar posición ... }
 
+
+-- =============================================================================
+-- CARGA DE RECURSOS
+-- =============================================================================
+
+-- Función para cargar la imagen de fondo del menú principal
+loadBackgroundImage :: String -> IO Picture
+loadBackgroundImage imagePath = do
+    result <- catch (loadBMP imagePath) handleError
+    return result
+  where
+    handleError :: IOError -> IO Picture
+    handleError e = do
+        putStrLn $ "Warning: No se pudo cargar la imagen: " ++ imagePath
+        putStrLn $ "Error: " ++ show e
+        putStrLn "Usando fondo sólido azul como respaldo"
+        return $ color (makeColorI 25 50 100 255) $ rectangleSolid 800 600
+
+-- Función para cargar todas las imágenes del juego
+loadGameImages :: IO Picture
+loadGameImages = do
+    backgroundImg <- loadBackgroundImage "img/entry.bmp"
+    -- Aquí puedes agregar más imágenes en el futuro
+    -- playerImg <- loadBackgroundImage "img/player.bmp"
+    -- enemyImg <- loadBackgroundImage "img/enemy.bmp"
+    return backgroundImg
 
 -- =============================================================================
 -- LÓGICA DEL JUEGO
