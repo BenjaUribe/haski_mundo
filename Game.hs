@@ -19,21 +19,6 @@ module Game
 
 import Control.Monad.State
 
--- =============================================================================
--- CONSTANTES DEL JUEGO
--- =============================================================================
-
--- Dimensiones
--- TODO: Define las dimensiones del tablero/mundo del juego
-
-
--- Parámetros del juego
--- TODO: Define parámetros como velocidad, vidas iniciales, puntuación, etc.
-
-
--- Caracteres/Símbolos para representación
--- TODO: Define símbolos para dibujar elementos del juego
-
 
 -- =============================================================================
 -- TIPOS DE DATOS
@@ -120,14 +105,6 @@ createEnemy Skeleton = Enemy
     , enemySpeed = 12.0
     }
 
--- =============================================================================
--- ESTADO INICIAL
--- =============================================================================
-
--- TODO: Define el estado inicial del juego
--- initialState :: GameState
--- initialState = GameState { ... }
-
 
 -- =============================================================================
 -- ACCIONES DEL JUEGO (usando State)
@@ -148,16 +125,3 @@ createEnemy Skeleton = Enemy
 
 -- TODO: Implementa la lógica de actualización del juego
 
-
--- =============================================================================
--- RENDERIZADO
--- =============================================================================
-
--- TODO: Funciones para mostrar el estado del juego
-
-
--- =============================================================================
--- GAME LOOP
--- =============================================================================
-
--- TODO: Implementa el bucle principal del juego
