@@ -30,9 +30,10 @@ import Game                           -- Lógica del juego y tipos de datos
 import Graphics.Gloss                 -- Biblioteca gráfica principal
 import Graphics.Gloss.Interface.IO.Game -- Para juegos con IO
 import Graphics.Gloss.Data.Picture     -- Manejo de imágenes
-import Control.Monad.State            -- Mónada State (actualmente no usada)
+import Control.Monad.State            -- Mónada State
 import qualified Data.Set as Set       -- Para conjuntos (actualmente no usado)
 import System.Exit (exitSuccess)      -- Para salir del programa
+import System.Random (randomRIO)  -- Para generación de números aleatorios
 
 -- =============================================================================
 -- CONFIGURACIÓN DE LA VENTANA Y JUEGO
@@ -101,6 +102,7 @@ data GameWorld = GameWorld
     , gameImages :: GameImages       -- ^ Todas las imágenes del juego
     , accesibleLvl :: [Int]          -- ^ Niveles accesibles
     , currentFloorEnemies :: [Enemy] -- ^ Enemigos del piso actual
+    , lastDiceRoll :: (Int, Int)     -- ^ Últimos valores de dados lanzados (d20, d8)
     } deriving (Show)
 
 -- Estado inicial del mundo
@@ -114,6 +116,7 @@ initialWorld chosenClass images = GameWorld
     , gameImages = images
     , accesibleLvl = [1, 2, 3]  -- Inicialmente solo el primer nivel es accesible
     , currentFloorEnemies = []  -- Sin enemigos al inicio
+    , lastDiceRoll = (0, 0)     -- Sin dados lanzados al inicio
     }
 
 -- =============================================================================
@@ -408,10 +411,18 @@ drawStatsPanel world =
 -- Panel de los dados
 drawDicePanel :: GameWorld -> Picture
 drawDicePanel world =
-    let panelX = 0      -- Centrado
-        panelY = -240   -- Centrado en la franja inferior
+    let panelX = 0
+        panelY = -240
         panelWidth = 300
         panelHeight = 160
+        
+        -- Extraemos los valores guardados
+        (d20, d8) = lastDiceRoll world
+        
+        -- Lógica de texto: Si es 0 mostramos "-", si no, el número
+        d20Text = if d20 == 0 then "-" else show d20
+        d8Text  = if d8 == 0  then "-" else show d8
+        
     in pictures
         [ -- Fondo del panel
           translate panelX panelY $ color (makeColorI 40 40 40 220) $ 
@@ -421,15 +432,18 @@ drawDicePanel world =
           rectangleWire panelWidth panelHeight
         , -- Título del panel
           translate (panelX - 120) (panelY + 45) $ scale 0.18 0.18 $ color white $ 
-          text "DADOS"
+          text "RESULTADO DADOS"
         , -- Línea separadora
           translate panelX (panelY + 35) $ color (greyN 0.6) $ 
           rectangleSolid (panelWidth - 20) 1
-        , -- Información de los dados (placeholder)
-          translate (panelX - 120) (panelY + 15) $ scale 0.14 0.14 $ color white $ 
-          text "Dado de ataque: 1d20"
-        , translate (panelX - 120) (panelY - 5) $ scale 0.14 0.14 $ color white $ 
-          text "Dado de Ataque: 1d8"
+          
+        , -- Mostramos D20 (Acierto)
+          translate (panelX - 120) (panelY + 10) $ scale 0.14 0.14 $ color yellow $ 
+          text ("Acierto (d20): " ++ d20Text)
+          
+        , -- Mostramos D8 (Daño)
+          translate (panelX - 120) (panelY - 20) $ scale 0.14 0.14 $ color red $ 
+          text ("Daño (d8): " ++ d8Text)
         ]
 
 -- Panel de acciones del jugador con botones (derecha, dentro de la franja)
@@ -606,29 +620,38 @@ handleGameInput _ world = world
 executeAction :: Int -> GameWorld -> GameWorld
 executeAction actionIndex world = 
     case actionIndex of
-        0 -> performAttack world  -- Atacar
-        1 -> world  { currentScene = SelectLevel, selectedMenuOption = 0 }  -- defender -> ir a SelectLevel
-        2 -> world { currentScene = MainMenu, selectedMenuOption = 0 }  -- Escapar (volver al menú)
+        0 -> world  
+        
+        1 -> world  { currentScene = SelectLevel, selectedMenuOption = 0 }  -- Defender
+        2 -> world { currentScene = MainMenu, selectedMenuOption = 0 }      -- Escapar
         _ -> world
 
 -- Realizar un ataque al primer enemigo de la lista
-performAttack :: GameWorld -> GameWorld
-performAttack world =
+performAttack :: Int -> Int -> GameWorld -> GameWorld
+performAttack d20 d8 world =
     case currentFloorEnemies world of
-        [] -> world  -- No hay enemigos, no hacer nada
-        (enemy:rest) -> 
-            let player = worldPlayer world
-                -- Usar runState para ejecutar doAttack y obtener el enemigo actualizado
-                (message, updatedEnemy) = runState (doAttack player) enemy
-                -- Filtrar enemigos muertos (vida <= 0)
-                newEnemies = if enemyHealth updatedEnemy <= 0
-                            then rest  -- Eliminar el enemigo muerto
-                            else updatedEnemy : rest  -- Mantener el enemigo actualizado
-                -- Actualizar el mundo con los nuevos enemigos
-                worldAfterPlayerAttack = world { currentFloorEnemies = newEnemies }
-            in 
-                -- Después del ataque del jugador, los enemigos contraatacan
-                enemiesAttackPlayer worldAfterPlayerAttack
+        [] -> world
+        (enemy:rest) ->
+            -- Lógica de ejemplo: Si el d20 es bajo (ej. < 5), fallas el ataque
+            if d20 < 5 
+            then world -- Falló el ataque, no pasa nada
+            else 
+                let player = worldPlayer world
+                    -- Calculamos el daño total: Daño base + el resultado del dado d8
+                    totalDamage = playerDamage player + fromIntegral d8
+                    
+                    -- Creamos un jugador temporal con este daño potenciado solo para este golpe
+                    tempPlayer = player { playerDamage = totalDamage }
+
+                    (message, updatedEnemy) = runState (doAttack tempPlayer) enemy
+                    
+                    newEnemies = if enemyHealth updatedEnemy <= 0
+                                then rest
+                                else updatedEnemy : rest
+                    
+                    worldAfterPlayerAttack = world { currentFloorEnemies = newEnemies }
+                in 
+                    enemiesAttackPlayer worldAfterPlayerAttack
 
 -- Los enemigos atacan al jugador en secuencia
 enemiesAttackPlayer :: GameWorld -> GameWorld
@@ -695,11 +718,27 @@ renderIO :: GameWorld -> IO Picture
 renderIO world = return $ render world
 
 handleInputIO :: Event -> GameWorld -> IO GameWorld
-handleInputIO event world = do
-    let newWorld = handleInput event world
-    if shouldExit newWorld
-        then exitSuccess
-        else return newWorld
+handleInputIO event world = 
+    case (currentScene world, selectedAction world, event) of
+        (InGame, 0, EventKey (SpecialKey KeyEnter) Down _ _) -> do
+            -- Generamos los números
+            dice20 <- randomRIO (0, 20) :: IO Int
+            dice8  <- randomRIO (0, 8)  :: IO Int
+            
+            putStrLn $ "Has rodado: 1d20=" ++ show dice20 ++ " y 1d8=" ++ show dice8
+            
+            -- Guardamos los dados en el mundo
+            let worldWithDice = world { lastDiceRoll = (dice20, dice8) }
+             
+            let newWorld = performAttack dice20 dice8 worldWithDice
+            
+            if shouldExit newWorld then exitSuccess else return newWorld
+
+        _ -> do
+            let newWorld = handleInput event world
+            if shouldExit newWorld
+                then exitSuccess
+                else return newWorld
 
 updateIO :: Float -> GameWorld -> IO GameWorld
 updateIO dt world = return $ update dt world
