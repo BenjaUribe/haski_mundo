@@ -31,6 +31,7 @@ import Graphics.Gloss                 -- Biblioteca gráfica principal
 import Graphics.Gloss.Interface.IO.Game -- Para juegos con IO
 import Graphics.Gloss.Data.Picture     -- Manejo de imágenes
 import Control.Monad.State            -- Mónada State
+import Control.Monad (foldM)           -- Para plegar acciones monádicas
 import qualified Data.Set as Set       -- Para conjuntos (actualmente no usado)
 import System.Exit (exitSuccess)      -- Para salir del programa
 import System.Random (randomRIO)  -- Para generación de números aleatorios
@@ -627,31 +628,34 @@ executeAction actionIndex world =
         _ -> world
 
 -- Realizar un ataque al primer enemigo de la lista
-performAttack :: Int -> Int -> GameWorld -> GameWorld
+-- Notar el cambio de tipo de retorno a IO GameWorld
+performAttack :: Int -> Int -> GameWorld -> IO GameWorld
 performAttack d20 d8 world =
     case currentFloorEnemies world of
-        [] -> world
+        [] -> return world -- Si no hay enemigos, no pasa nada
         (enemy:rest) ->
-            -- Lógica de ejemplo: Si el d20 es bajo (ej. < 5), fallas el ataque
             if d20 < 5 
-            then world -- Falló el ataque, no pasa nada
-            else 
+            then do
+                putStrLn "¡Has fallado tu ataque!"
+                -- Si el jugador falla, los enemigos atacan igual
+                enemiesAttackPlayerIO world 
+            else do
                 let player = worldPlayer world
-                    -- Calculamos el daño total: Daño base + el resultado del dado d8
-                    totalDamage = playerDamage player + fromIntegral d8
-                    
-                    -- Creamos un jugador temporal con este daño potenciado solo para este golpe
-                    tempPlayer = player { playerDamage = totalDamage }
+                let totalDamage = playerDamage player + fromIntegral d8
+                let tempPlayer = player { playerDamage = totalDamage }
 
-                    (message, updatedEnemy) = runState (doAttack tempPlayer) enemy
-                    
-                    newEnemies = if enemyHealth updatedEnemy <= 0
+                let (message, updatedEnemy) = runState (doAttack tempPlayer) enemy
+                
+                let newEnemies = if enemyHealth updatedEnemy <= 0
                                 then rest
                                 else updatedEnemy : rest
-                    
-                    worldAfterPlayerAttack = world { currentFloorEnemies = newEnemies }
-                in 
-                    enemiesAttackPlayer worldAfterPlayerAttack
+                
+                let worldAfterPlayerAttack = world { currentFloorEnemies = newEnemies }
+                
+                -- Si matamos a todos los enemigos, comprobamos victoria
+                if null newEnemies
+                    then return $ checkCombatStatus worldAfterPlayerAttack
+                    else enemiesAttackPlayerIO worldAfterPlayerAttack
 
 -- Los enemigos atacan al jugador en secuencia
 enemiesAttackPlayer :: GameWorld -> GameWorld
@@ -670,6 +674,44 @@ enemiesAttackPlayer world =
     applyEnemyDamage currentPlayer enemy =
         let (message, newPlayer) = runState (takeDamage enemy) currentPlayer
         in newPlayer
+
+-- los enemigos atacan al jugador en secuencia (versión IO con dados aleatorios)
+enemiesAttackPlayerIO :: GameWorld -> IO GameWorld
+enemiesAttackPlayerIO world = do
+    let enemies = currentFloorEnemies world
+    let player = worldPlayer world
+    
+    -- Usamos foldM para iterar sobre los enemigos acumulando el daño en el player
+    updatedPlayer <- foldM applyEnemyTurn player enemies
+    
+    let worldAfterCombat = world { worldPlayer = updatedPlayer }
+    return $ checkCombatStatus worldAfterCombat
+  where
+    -- Lógica de turno individual por enemigo
+    applyEnemyTurn :: Player -> Enemy -> IO Player
+    applyEnemyTurn currentPlayer enemy = do
+        -- Generamos dados para ESTE enemigo
+        enemyD20 <- randomRIO (0, 20) :: IO Int
+        enemyD8  <- randomRIO (0, 8)  :: IO Int
+        
+        -- Imprimir en consola para ver qué pasa
+        putStrLn $ "Enemigo " ++ show (enemyClass enemy) ++ " tira: d20=" ++ show enemyD20 ++ " d8=" ++ show enemyD8
+        
+        -- Lógica de acierto
+        if enemyD20 < 5 
+            then do
+                putStrLn "¡El enemigo falló!"
+                return currentPlayer
+            else do
+                -- Calcular daño más dado
+                let totalEnemyDamage = enemyDamage enemy + fromIntegral enemyD8
+                
+                -- Creamos enemigo temporal para el cálculo del daño mas dado
+                let tempEnemy = enemy { enemyDamage = totalEnemyDamage }
+                
+                -- Aplicamos el daño usando tu función pura existente
+                let (_, newPlayer) = runState (takeDamage tempEnemy) currentPlayer
+                return newPlayer
 
 -- Verificar el estado del combate después de un turno completo
 checkCombatStatus :: GameWorld -> GameWorld
@@ -721,16 +763,16 @@ handleInputIO :: Event -> GameWorld -> IO GameWorld
 handleInputIO event world = 
     case (currentScene world, selectedAction world, event) of
         (InGame, 0, EventKey (SpecialKey KeyEnter) Down _ _) -> do
-            -- Generamos los números
+            -- Generamos los números del JUGADOR
             dice20 <- randomRIO (0, 20) :: IO Int
             dice8  <- randomRIO (0, 8)  :: IO Int
             
-            putStrLn $ "Has rodado: 1d20=" ++ show dice20 ++ " y 1d8=" ++ show dice8
+            putStrLn $ "\n--- NUEVO TURNO ---"
+            putStrLn $ "PLAYER tira: 1d20=" ++ show dice20 ++ " y 1d8=" ++ show dice8
             
-            -- Guardamos los dados en el mundo
             let worldWithDice = world { lastDiceRoll = (dice20, dice8) }
              
-            let newWorld = performAttack dice20 dice8 worldWithDice
+            newWorld <- performAttack dice20 dice8 worldWithDice
             
             if shouldExit newWorld then exitSuccess else return newWorld
 
