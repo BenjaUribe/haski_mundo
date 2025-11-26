@@ -27,6 +27,8 @@ module Game
     -- === CARGA DE RECURSOS ===
     , loadBackgroundImage   -- Cargar imagen de fondo individual
     , loadGameImages        -- Cargar todas las imágenes del juego
+    , getPlayerSprite       -- Obtener sprite del jugador según su clase
+    , getEnemySprite        -- Obtener sprite del enemigo según su clase
     
     -- === CONFIGURACIÓN DE PISOS ===
     , getFloorData          -- Obtener datos de un piso específico
@@ -37,7 +39,6 @@ module Game
     , takeDamage            -- Función para recibir daño
     , takeHeal              -- Función para curarse
     , powerUpDamage         -- Incrementar daño
-    , powerUpSpeed          -- Incrementar velocidad
     ) where
 
 -- === IMPORTS ===
@@ -63,7 +64,6 @@ data Player = Player
     { playerClass :: CharacterClass  -- ^ Clase del personaje
     , playerHealth :: Int            -- ^ Vida actual
     , playerDamage :: Float          -- ^ Daño base por ataque
-    , playerSpeed :: Float           -- ^ Velocidad del personaje
     } deriving (Show, Eq)
 
 
@@ -71,6 +71,7 @@ data EnemyClass =
     Slime     -- ^ Enemigo básico: vida baja, velocidad alta
   | Reaper     -- ^ Enemigo tanque: mucha vida, lento pero fuerte
   | Skeleton  -- ^ Enemigo ágil: rápido y dañino pero frágil
+  | Warlock  -- ^ Boss
   deriving (Show, Eq)
 
 -- | Tipo de datos para enemigos
@@ -79,7 +80,6 @@ data Enemy = Enemy
     { enemyClass :: EnemyClass       -- ^ Tipo de enemigo
     , enemyHealth :: Int             -- ^ Vida actual
     , enemyDamage :: Float           -- ^ Daño base por ataque
-    , enemySpeed :: Float            -- ^ Velocidad del enemigo
     } deriving (Show, Eq)
 
 -- | Datos de configuración para cada piso
@@ -98,7 +98,14 @@ data FloorData = FloorData
 data GameImages = GameImages
     { menuBackground :: Picture      -- ^ Imagen de fondo del menú principal
     , selectLevelBg :: Picture       -- ^ Imagen de fondo para selección de nivel
-    , arenaBackground :: Picture     -- ^ Imagen de fondo de la arena (InGame)       -- ^ Sprite del enemigo
+    , arenaBackground :: Picture     -- ^ Imagen de fondo de la arena (InGame)
+    , warriorSprite :: Picture       -- ^ Sprite del Warrior
+    , tankSprite :: Picture          -- ^ Sprite del Tank
+    , rogueSprite :: Picture         -- ^ Sprite del Rogue
+    , slimeSprite :: Picture         -- ^ Sprite del Slime
+    , skeletonSprite :: Picture      -- ^ Sprite del Skeleton
+    , reaperSprite :: Picture        -- ^ Sprite del Reaper
+    , warlockSprite :: Picture       -- ^ Sprite del Warlock (Boss)
     } deriving (Show)
 
 -- =============================================================================
@@ -111,19 +118,16 @@ createPlayer Warrior = Player
     { playerClass = Warrior
     , playerHealth = 100
     , playerDamage = 5.0
-    , playerSpeed = 2.0
     }
 createPlayer Tank = Player
     { playerClass = Tank
     , playerHealth = 150
     , playerDamage = 1.5
-    , playerSpeed = 1.0
     }
 createPlayer Rogue = Player
     { playerClass = Rogue
     , playerHealth = 80
     , playerDamage = 3.5
-    , playerSpeed = 3.5
     }
 
 -- Constructor de enemigo según la clase
@@ -131,20 +135,22 @@ createEnemy :: EnemyClass -> Enemy
 createEnemy Slime = Enemy
     { enemyClass = Slime
     , enemyHealth = 30
-    , enemyDamage = 5.0
-    , enemySpeed = 8.0
+    , enemyDamage = 2.5
     }
 createEnemy Reaper = Enemy
     { enemyClass = Reaper
     , enemyHealth = 150
-    , enemyDamage = 9.0
-    , enemySpeed = 4.0
+    , enemyDamage = 8.5
     }
 createEnemy Skeleton = Enemy
     { enemyClass = Skeleton
     , enemyHealth = 60
-    , enemyDamage = 10.0
-    , enemySpeed = 12.0
+    , enemyDamage = 6.0
+    }
+createEnemy Warlock = Enemy
+    { enemyClass = Warlock
+    , enemyHealth = 200
+    , enemyDamage = 12.0
     }
 
 
@@ -166,11 +172,6 @@ powerUpDamage :: Float -> State Player String
 powerUpDamage boost = do
     modify (\player -> player { playerDamage = playerDamage player + boost })
     return ("El daño ha sido incrementado en " ++ (show boost) ++ " puntos")
-
-powerUpSpeed :: Float -> State Player String
-powerUpSpeed boost = do
-    modify (\player -> player { playerSpeed = playerSpeed player + boost })
-    return ("La velocidad ha sido incrementada en " ++ (show boost) ++ " puntos")
 
 doAttack :: Player -> State Enemy String
 doAttack player = do
@@ -215,6 +216,21 @@ loadBackgroundImage imagePath = do
         putStrLn "Usando fondo sólido azul como respaldo"
         return $ color (makeColorI 25 50 100 255) $ rectangleSolid 800 600
 
+-- | Cargar un sprite (imagen pequeña) con manejo de errores
+-- Si falla, retorna un placeholder más pequeño
+loadSprite :: String -> IO Picture
+loadSprite imagePath = do
+    result <- catch (loadBMP imagePath) handleError
+    return result
+  where
+    handleError :: IOError -> IO Picture
+    handleError e = do
+        putStrLn $ "Warning: No se pudo cargar el sprite: " ++ imagePath
+        putStrLn $ "Error: " ++ show e
+        putStrLn "Usando círculo de placeholder"
+        -- Devolver un círculo simple como placeholder
+        return $ color (makeColorI 100 100 255 255) $ circleSolid 50
+
 -- | Cargar todas las imágenes necesarias para el juego
 -- Retorna un GameImages con todas las imágenes cargadas
 loadGameImages :: IO GameImages
@@ -228,14 +244,42 @@ loadGameImages = do
     -- Cargar imagen de fondo de la arena (InGame)
     arenaBg <- loadBackgroundImage "img/arena.bmp"
     
-    -- Cargar sprites del jugador y enemigo
-
+    -- Cargar sprites del jugador según clase (usando loadSprite para mejor manejo)
+    warriorImg <- loadSprite "img/Warrior.bmp"
+    tankImg <- loadSprite "img/tank.bmp"
+    rogueImg <- loadSprite "img/Rogue.bmp"
+    
+    -- Cargar sprites de enemigos
+    slimeImg <- loadSprite "img/slime.bmp"
+    skeletonImg <- loadSprite "img/skeleton.bmp"
+    reaperImg <- loadSprite "img/reaper.bmp"
+    warlockImg <- loadSprite "img/warlock.bmp"
     
     return GameImages
         { menuBackground = menuBg
         , selectLevelBg = levelBg
         , arenaBackground = arenaBg
+        , warriorSprite = warriorImg
+        , tankSprite = tankImg
+        , rogueSprite = rogueImg
+        , slimeSprite = slimeImg
+        , skeletonSprite = skeletonImg
+        , reaperSprite = reaperImg
+        , warlockSprite = warlockImg
         }
+
+-- | Obtener el sprite del jugador según su clase
+getPlayerSprite :: GameImages -> CharacterClass -> Picture
+getPlayerSprite images Warrior = warriorSprite images
+getPlayerSprite images Tank = tankSprite images
+getPlayerSprite images Rogue = rogueSprite images
+
+-- | Obtener el sprite del enemigo según su clase
+getEnemySprite :: GameImages -> EnemyClass -> Picture
+getEnemySprite images Slime = slimeSprite images
+getEnemySprite images Skeleton = skeletonSprite images
+getEnemySprite images Reaper = reaperSprite images
+getEnemySprite images Warlock = warlockSprite images
 
 -- =============================================================================
 -- LÓGICA DEL JUEGO
@@ -281,19 +325,19 @@ floorConfigurations =
         }
     , FloorData 
         { floorNumber = 2
-        , floorEnemies = [Slime, Slime, Slime]
+        , floorEnemies = [Slime]
         , isBossFloor = False
         }
     , FloorData 
         { floorNumber = 3
-        , floorEnemies = [Slime, Skeleton]
+        , floorEnemies = [Skeleton]
         , isBossFloor = False
         }
     
     -- Pisos 4-6: Zona media - Mix de enemigos
     , FloorData 
         { floorNumber = 4
-        , floorEnemies = [Skeleton, Skeleton]
+        , floorEnemies = [Skeleton, Slime]
         , isBossFloor = False
         }
     , FloorData 
@@ -303,7 +347,7 @@ floorConfigurations =
         }
     , FloorData 
         { floorNumber = 6
-        , floorEnemies = [Skeleton, Slime, Slime]
+        , floorEnemies = [Skeleton, Slime]
         , isBossFloor = False
         }
     
@@ -315,19 +359,19 @@ floorConfigurations =
         }
     , FloorData 
         { floorNumber = 8
-        , floorEnemies = [Skeleton, Skeleton, Skeleton]
+        , floorEnemies = [Skeleton, Slime, Skeleton]
         , isBossFloor = False
         }
     , FloorData 
         { floorNumber = 9
-        , floorEnemies = [Reaper, Reaper]
+        , floorEnemies = [Reaper, Slime]
         , isBossFloor = False
         }
     
     -- Piso 10: BOSS FINAL
     , FloorData 
         { floorNumber = 10
-        , floorEnemies = [Reaper, Skeleton, Skeleton]  -- Boss podría ser una combinación difícil
+        , floorEnemies = [Warlock] 
         , isBossFloor = True
         }
     ]

@@ -31,7 +31,7 @@ import Graphics.Gloss                 -- Biblioteca gráfica principal
 import Graphics.Gloss.Interface.IO.Game -- Para juegos con IO
 import Graphics.Gloss.Data.Picture     -- Manejo de imágenes
 import Control.Monad.State            -- Mónada State
-import Control.Monad (foldM)           -- Para plegar acciones monádicas
+import Control.Monad (foldM, when)    -- Para plegar acciones monádicas y condicionales
 import qualified Data.Set as Set       -- Para conjuntos (actualmente no usado)
 import System.Exit (exitSuccess)      -- Para salir del programa
 import System.Random (randomRIO)  -- Para generación de números aleatorios
@@ -104,6 +104,8 @@ data GameWorld = GameWorld
     , accesibleLvl :: [Int]          -- ^ Niveles accesibles
     , currentFloorEnemies :: [Enemy] -- ^ Enemigos del piso actual
     , lastDiceRoll :: (Int, Int)     -- ^ Últimos valores de dados lanzados (d20, d8)
+    , isBlocking :: Bool             -- ^ Flag para indicar si el jugador está bloqueando
+    , combatMessage :: String        -- ^ Mensaje de combate a mostrar
     } deriving (Show)
 
 -- Estado inicial del mundo
@@ -117,7 +119,9 @@ initialWorld chosenClass images = GameWorld
     , gameImages = images
     , accesibleLvl = [1, 2, 3]  -- Inicialmente solo el primer nivel es accesible
     , currentFloorEnemies = []  -- Sin enemigos al inicio
-    , lastDiceRoll = (0, 0)     -- Sin dados lanzados al inicio
+    , lastDiceRoll = (0, 0)
+    , isBlocking = False        -- Inicialmente no está bloqueando
+    , combatMessage = ""        -- Sin mensaje inicial
     }
 
 -- =============================================================================
@@ -205,20 +209,19 @@ renderClassOptions selected = pictures $
               text (if isSelected then "> " ++ className else className)
             , -- Estadísticas
               translate (-250) (yPos - 15) $ scale 0.18 0.18 $ color white $ 
-              text ("Vida: " ++ show (fst4 stats) ++ "  Ataque: " ++ show (snd4 stats))
+              text ("Vida: " ++ show (fst3 stats) ++ "  Ataque: " ++ show (snd3 stats))
             , translate (-250) (yPos - 42) $ scale 0.18 0.18 $ color white $ 
-              text ("Velocidad: " ++ show (thd4 stats) ++ "  Tipo: " ++ fth4 stats)
+              text ("Tipo: " ++ thd3 stats)
             ]
     ) [0..] classData
   where
-    classData = [ ("WARRIOR", (100, 4.5, 2.0, "Equilibrado"))
-                , ("TANK", (150, 1.5, 1.0, "Defensivo"))
-                , ("ROGUE", (80, 3.0, 4.0, "Rapido"))
+    classData = [ ("WARRIOR", (100, 4.5, "Equilibrado"))
+                , ("TANK", (150, 1.5, "Defensivo"))
+                , ("ROGUE", (80, 3.0, "Rapido"))
                 ]
-    fst4 (a,_,_,_) = a
-    snd4 (_,b,_,_) = b
-    thd4 (_,_,c,_) = c
-    fth4 (_,_,_,d) = d
+    fst3 (a,_,_) = a
+    snd3 (_,b,_) = b
+    thd3 (_,_,c) = c
 
 -- Renderizar selección de nivel
 renderSelectLevel :: GameWorld -> Picture
@@ -287,43 +290,59 @@ renderFloorButtons selectedFloor accessible = pictures $
             ]
     ) [0..] floorPositions
 
--- Renderizar el juego con fondo de arena, enemigos y HUD
+-- Renderizar el juego con fondo de arena, jugador, enemigos y HUD
 renderGame :: GameWorld -> Picture
 renderGame world = pictures
     [ -- Fondo de arena escalado y posicionado para cubrir toda la ventana
       translate 0 97 $ arenaBackground (gameImages world)
-    , -- Enemigos en el área de juego
-      renderEnemies (currentFloorEnemies world)
+    , -- Sprite del jugador en la izquierda
+      renderPlayer world
+    , -- Enemigos en el área de juego (derecha)
+      renderEnemies (currentFloorEnemies world) (gameImages world)
     , -- HUD del juego encima del fondo
       drawGameHUD world
     ]
 
--- Renderizar enemigos como círculos de colores
-renderEnemies :: [Enemy] -> Picture
-renderEnemies enemies = pictures $ zipWith renderEnemy [0..] enemies
+-- Renderizar el sprite del jugador según su clase
+renderPlayer :: GameWorld -> Picture
+renderPlayer world =
+    let player = worldPlayer world
+        images = gameImages world
+        playerSprite = getPlayerSprite images (playerClass player)
+        -- Posición del jugador (izquierda de la pantalla, más arriba)
+        xPos = -350
+        yPos = 20
+        -- Escala del sprite aumentada para mejor visibilidad
+        spriteScale = 3.4
+    in pictures
+        [ -- Sprite del jugador escalado
+          translate xPos yPos $ scale spriteScale spriteScale $ playerSprite
+        , -- Vida del jugador encima del sprite
+          translate (xPos - 50) (yPos + 150) $ scale 0.2 0.2 $ color yellow $
+          text (show (playerHealth player) ++ " HP")
+        ]
+
+-- Renderizar enemigos con sus sprites
+renderEnemies :: [Enemy] -> GameImages -> Picture
+renderEnemies enemies images = pictures $ zipWith (renderEnemy images) [0..] enemies
   where
-    renderEnemy :: Int -> Enemy -> Picture
-    renderEnemy index enemy =
+    renderEnemy :: GameImages -> Int -> Enemy -> Picture
+    renderEnemy imgs index enemy =
         let -- Posiciones en horizontal, espaciados
-            xPos = 200 + fromIntegral index * 150
-            yPos = 50
-            -- Radio según la vida del enemigo
-            radius = 30 + (fromIntegral (enemyHealth enemy) / 10)
-            -- Color según el tipo de enemigo
-            enemyColor = case enemyClass enemy of
-                Slime -> makeColorI 100 200 100 255     -- Verde para Slime
-                Skeleton -> makeColorI 200 200 200 255  -- Gris para Skeleton
-                Reaper -> makeColorI 150 50 50 255      -- Rojo oscuro para Reaper
+            xPos = 200 + fromIntegral index * 180
+            yPos = 0
+            -- Obtener el sprite correcto según el tipo de enemigo
+            enemySprite = getEnemySprite imgs (enemyClass enemy)
+            -- Escala del sprite
+            spriteScale = 2.9
         in pictures
-            [ -- Círculo del enemigo
-              translate xPos yPos $ color enemyColor $ circleSolid radius
-            , -- Borde del círculo
-              translate xPos yPos $ color white $ circle radius
+            [ -- Sprite del enemigo
+              translate xPos yPos $ scale spriteScale spriteScale $ enemySprite
             , -- Vida del enemigo encima
-              translate (xPos - 15) (yPos + radius + 15) $ scale 0.15 0.15 $ color white $
+              translate (xPos - 30) (yPos + 150) $ scale 0.18 0.18 $ color red $
               text (show (enemyHealth enemy) ++ " HP")
-            , -- Nombre del tipo
-              translate (xPos - 20) (yPos - 5) $ scale 0.12 0.12 $ color black $
+            , -- Nombre del tipo debajo
+              translate (xPos - 40) (yPos - 150) $ scale 0.15 0.15 $ color white $
               text (show (enemyClass enemy))
             ]
 
@@ -361,7 +380,20 @@ drawGameHUD world = pictures
     , drawStatsPanel world
     , drawDicePanel world
     , drawActionsPanel world
+    , drawCombatMessage world  -- Mensaje de combate
     ]
+
+-- Renderizar mensaje de combate en la parte superior
+drawCombatMessage :: GameWorld -> Picture
+drawCombatMessage world =
+    if null (combatMessage world)
+    then blank
+    else pictures
+        [ -- Fondo del mensaje
+          translate 0 250 $ color (makeColorI 0 0 0 200) $ rectangleSolid 800 60
+        , -- Texto del mensaje
+          translate (-380) 235 $ scale 0.25 0.25 $ color red $ text (combatMessage world)
+        ]
 
 -- Franja oscura en la parte inferior de 240px de altura
 drawBottomBar :: Picture
@@ -405,8 +437,6 @@ drawStatsPanel world =
           text ("Vida: " ++ show (playerHealth player))
         , translate (panelX - 100) (panelY - 25) $ scale 0.14 0.14 $ color white $ 
           text ("Ataque: " ++ show (playerDamage player))
-        , translate (panelX - 100) (panelY - 45) $ scale 0.14 0.14 $ color white $ 
-          text ("Velocidad: " ++ show (playerSpeed player))
         ]
 
 -- Panel de los dados
@@ -509,7 +539,7 @@ getNextLevel currentLvl = case currentLvl of
     7 -> [10]        -- El 7 va al boss
     -- Camino Central
     2 -> [5]         -- El 2 solo sube al 5
-    5 -> [8]         -- El 5 solo sube al 8 (¿o conecta a otro lado según tu diseño?)
+    5 -> [8]         -- El 5 solo sube al 8 
     8 -> [10]        -- El 8 va al boss
     -- Camino Derecho
     3 -> [6, 5]      -- El 3 sube al 6 O cruza diagonal al 5
@@ -602,7 +632,12 @@ handleClassSelectionInput (EventKey (SpecialKey KeyEnter) Down _ _) world =
             1 -> Tank
             2 -> Rogue
             _ -> Warrior
-    in world { currentScene = InGame, worldPlayer = createPlayer chosenClass, selectedAction = 0 }
+    in world 
+        { currentScene = SelectLevel  -- Ir a selección de piso en lugar de InGame
+        , worldPlayer = createPlayer chosenClass
+        , selectedMenuOption = 0      -- Resetear selección para el mapa
+        , selectedAction = 0
+        }
 handleClassSelectionInput _ world = world
 
 -- Manejo de eventos en el juego (navegación de botones de acción)
@@ -621,11 +656,27 @@ handleGameInput _ world = world
 executeAction :: Int -> GameWorld -> GameWorld
 executeAction actionIndex world = 
     case actionIndex of
-        0 -> world  
+        0 -> world  -- Atacar (manejado por IO)
         
-        1 -> world  { currentScene = SelectLevel, selectedMenuOption = 0 }  -- Defender
-        2 -> world { currentScene = MainMenu, selectedMenuOption = 0 }      -- Escapar
+        1 -> performBlock world  -- Bloquear: reduce daño del siguiente turno
+        2 -> performEscape world -- Escapar: intento fallido, enemigos atacan
         _ -> world
+
+-- Intentar escapar: no se puede escapar, los enemigos atacan
+performEscape :: GameWorld -> GameWorld
+performEscape world =
+    let worldWithMessage = world { combatMessage = "Escapar es de cobardes, seras castigado" }
+        -- Los enemigos aprovechan el intento de escape y atacan
+        worldAfterAttack = enemiesAttackPlayer worldWithMessage
+    in worldAfterAttack
+
+-- Realizar bloqueo: activa el flag y los enemigos atacan con daño reducido
+performBlock :: GameWorld -> GameWorld
+performBlock world =
+    let worldClean = world { combatMessage = "" }  -- Limpiar mensaje anterior
+        worldWithBlock = worldClean { isBlocking = True }
+        worldAfterEnemies = enemiesAttackPlayer worldWithBlock
+    in worldAfterEnemies { isBlocking = False }  -- Desactivar bloqueo después del turno
 
 -- Realizar un ataque al primer enemigo de la lista
 -- Notar el cambio de tipo de retorno a IO GameWorld
@@ -637,8 +688,9 @@ performAttack d20 d8 world =
             if d20 < 5 
             then do
                 putStrLn "¡Has fallado tu ataque!"
-                -- Si el jugador falla, los enemigos atacan igual
-                enemiesAttackPlayerIO world 
+                -- Limpiar mensaje y hacer que los enemigos ataquen
+                let worldClean = world { combatMessage = "" }
+                enemiesAttackPlayerIO worldClean
             else do
                 let player = worldPlayer world
                 let totalDamage = playerDamage player + fromIntegral d8
@@ -650,7 +702,8 @@ performAttack d20 d8 world =
                                 then rest
                                 else updatedEnemy : rest
                 
-                let worldAfterPlayerAttack = world { currentFloorEnemies = newEnemies }
+                -- Limpiar mensaje al atacar
+                let worldAfterPlayerAttack = world { currentFloorEnemies = newEnemies, combatMessage = "" }
                 
                 -- Si matamos a todos los enemigos, comprobamos victoria
                 if null newEnemies
@@ -662,17 +715,22 @@ enemiesAttackPlayer :: GameWorld -> GameWorld
 enemiesAttackPlayer world =
     let enemies = currentFloorEnemies world
         player = worldPlayer world
+        blocking = isBlocking world  -- Verificar si está bloqueando
         -- Aplicar el daño de todos los enemigos al jugador usando fold
-        updatedPlayer = foldl applyEnemyDamage player enemies
+        updatedPlayer = foldl (applyEnemyDamage blocking) player enemies
         worldAfterCombat = world { worldPlayer = updatedPlayer }
     in 
         -- Verificar condiciones de victoria o derrota después del combate
         checkCombatStatus worldAfterCombat
   where
     -- Función auxiliar que aplica el daño de un enemigo al jugador
-    applyEnemyDamage :: Player -> Enemy -> Player
-    applyEnemyDamage currentPlayer enemy =
-        let (message, newPlayer) = runState (takeDamage enemy) currentPlayer
+    -- Si está bloqueando, reduce el daño a la mitad
+    applyEnemyDamage :: Bool -> Player -> Enemy -> Player
+    applyEnemyDamage blocking currentPlayer enemy =
+        let reducedEnemy = if blocking 
+                          then enemy { enemyDamage = enemyDamage enemy / 2 }
+                          else enemy
+            (message, newPlayer) = runState (takeDamage reducedEnemy) currentPlayer
         in newPlayer
 
 -- los enemigos atacan al jugador en secuencia (versión IO con dados aleatorios)
@@ -680,16 +738,17 @@ enemiesAttackPlayerIO :: GameWorld -> IO GameWorld
 enemiesAttackPlayerIO world = do
     let enemies = currentFloorEnemies world
     let player = worldPlayer world
+    let blocking = isBlocking world  -- Verificar si está bloqueando
     
     -- Usamos foldM para iterar sobre los enemigos acumulando el daño en el player
-    updatedPlayer <- foldM applyEnemyTurn player enemies
+    updatedPlayer <- foldM (applyEnemyTurn blocking) player enemies
     
     let worldAfterCombat = world { worldPlayer = updatedPlayer }
     return $ checkCombatStatus worldAfterCombat
   where
     -- Lógica de turno individual por enemigo
-    applyEnemyTurn :: Player -> Enemy -> IO Player
-    applyEnemyTurn currentPlayer enemy = do
+    applyEnemyTurn :: Bool -> Player -> Enemy -> IO Player
+    applyEnemyTurn blocking currentPlayer enemy = do
         -- Generamos dados para ESTE enemigo
         enemyD20 <- randomRIO (0, 20) :: IO Int
         enemyD8  <- randomRIO (0, 8)  :: IO Int
@@ -704,13 +763,21 @@ enemiesAttackPlayerIO world = do
                 return currentPlayer
             else do
                 -- Calcular daño más dado
-                let totalEnemyDamage = enemyDamage enemy + fromIntegral enemyD8
+                let baseDamage = enemyDamage enemy + fromIntegral enemyD8
+                -- Si está bloqueando, reducir daño a la mitad
+                let totalEnemyDamage = if blocking 
+                                      then baseDamage / 2
+                                      else baseDamage
                 
                 -- Creamos enemigo temporal para el cálculo del daño mas dado
                 let tempEnemy = enemy { enemyDamage = totalEnemyDamage }
                 
                 -- Aplicamos el daño usando tu función pura existente
                 let (_, newPlayer) = runState (takeDamage tempEnemy) currentPlayer
+                
+                -- Mensaje de bloqueo si corresponde
+                when blocking $ putStrLn "¡Daño reducido por bloqueo!"
+                
                 return newPlayer
 
 -- Verificar el estado del combate después de un turno completo
