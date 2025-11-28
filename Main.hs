@@ -799,7 +799,9 @@ performAttack d20 d8 world =
                 enemiesAttackPlayerIO worldClean
             else do
                 let player = worldPlayer world
-                let totalDamage = playerDamage player + fromIntegral d8
+                let totalDamage = if playerClass player == Rogue
+                                then playerDamage player + fromIntegral (d8 * 2)
+                                else playerDamage player + fromIntegral d8
                 let tempPlayer = player { playerDamage = totalDamage }
 
                 let (message, updatedEnemy) = runState (doAttack tempPlayer) enemy
@@ -1062,13 +1064,23 @@ handleInputIO event world =
             -- Generamos los números del JUGADOR
             dice20 <- randomRIO (0, 20) :: IO Int
             dice8  <- randomRIO (0, 8)  :: IO Int
+            extraDice8 <- randomRIO (0, 8) :: IO Int
+
+            damageDice8 <- 
+                if dice20 == 20
+                then return (dice8 + extraDice8)
+                else return dice8
             
             putStrLn $ "\n--- NUEVO TURNO ---"
-            putStrLn $ "PLAYER tira: 1d20=" ++ show dice20 ++ " y 1d8=" ++ show dice8
+            if dice20 == 20
+            then putStrLn $ "PLAYER tira un CRITICO con 1d20=" ++ show dice20 ++ " y 2d8=" ++ show dice8 ++ " + " ++ show extraDice8
+            else putStrLn $ "PLAYER tira: 1d20=" ++ show dice20 ++ " y 1d8=" ++ show dice8
             
-            let worldWithDice = world { lastDiceRoll = (dice20, dice8) }
+            
+            
+            let worldWithDice = world { lastDiceRoll = (dice20, damageDice8) }
              
-            newWorld <- performAttack dice20 dice8 worldWithDice
+            newWorld <- performAttack dice20 damageDice8 worldWithDice
             
             if shouldExit newWorld then exitSuccess else return newWorld
 
