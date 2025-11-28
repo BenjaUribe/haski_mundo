@@ -118,7 +118,7 @@ data GameImages = GameImages
 createPlayer :: CharacterClass -> Player
 createPlayer Warrior = Player
     { playerClass = Warrior
-    , playerHealth = 1000
+    , playerHealth = 100
     , playerDamage = 5.0
     }
 createPlayer Tank = Player
