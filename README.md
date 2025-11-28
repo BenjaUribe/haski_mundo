@@ -37,3 +37,7 @@ Este proyecto consiste en un juego simple desarrollado en Haskell, utilizando la
 
 Las acciones del jugador estan inspiradas en los juego estilo `Pokemon` y `Dungeons and Dragons`, refiriéndonos a la seleccion de acciones y al hecho de que estas estan sujetas a dados para ver efectividad.
 
+En nuestro proyecto utilizamos la mónada State para modificar los atributos `playerHealth`, `playerDamage` y `enemyHealth`, controlando así el desarrollo de los niveles.
+
+
+
