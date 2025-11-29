@@ -210,7 +210,7 @@ renderMainMenu world = pictures
     [ -- Imagen de fondo
       menuBackground (gameImages world)
     , -- Titulo del juego
-      translate (-600) 270 $ scale 0.5 0.5 $ color white $ text "HASKI-MUNDO"
+      translate (-610) 270 $ scale 0.5 0.5 $ color white $ text "HASKI-MUNDO"
     , -- Opciones del menu
       translate (-100) 0 $ renderMenuOptions ["Jugar", "Creditos", "Salir"] (selectedMenuOption world)
     , -- Barra de volumen
@@ -298,7 +298,7 @@ renderSelectLevel world = pictures
     , renderFloorButtons (selectedMenuOption world) (accesibleLvl world)
     
     , -- Titulo
-      translate (-600) 280 $ scale 0.4 0.4 $ color white $ text "SELECCIONA TU PISO"
+      translate (-620) 280 $ scale 0.4 0.4 $ color white $ text "SELECCIONA TU PISO"
     , -- Instrucciones
       translate (-400) (-320) $ scale 0.2 0.2 $ color (greyN 0.7) $ text "Usa las flechas para seleccionar"
     ]
@@ -499,8 +499,10 @@ renderCorridor world =
               corridorBg images
             , -- Sprite del jugador
               translate playerX playerY $ scale spriteScale spriteScale $ playerSprite
+            , -- Fondo del texto (centrado en 0, 300)
+              translate 0 320 $ color (makeColorI 0 0 0 180) $ rectangleSolid 720 60
             , -- Texto informativo en la parte superior
-              translate (-350) 300 $ scale 0.35 0.35 $ color white $ text "Preparate para el combate"
+              translate (-350) 300 $ scale 0.4 0.4 $ color red $ text "Preparate para el combate"
             , -- Instrucciones dinamicas
               translate (-500) (-320) $ scale 0.25 0.25 $ color (if canEnterCombat then green else yellow) $ 
                 text (if canEnterCombat
