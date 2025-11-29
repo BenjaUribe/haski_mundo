@@ -1,6 +1,11 @@
 # Paradigmas-Haski: Dungeon Crawler en Haskell
 **INFO188 - Tarea 1: Programación Funcional**
 
+## Video Trailer
+**[Ver Trailer del Juego en Google Drive](https://drive.google.com/file/d/10afGnnDlsMNf5dkiMu24Mdg9P1eJVvyW/view)**
+
+---
+
 ## Tabla de Contenidos
 - [Descripción del Proyecto](#descripción-del-proyecto)
 - [Requisitos del Sistema](#requisitos-del-sistema)
